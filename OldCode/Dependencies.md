@@ -1,0 +1,4 @@
+pymavlink
+    fastcrc
+    lxml
+pyserial
