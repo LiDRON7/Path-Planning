@@ -3,7 +3,7 @@ import time
 
 class Drone:
     def __init__(self):
-        self.mav = mavutil.mavlink_connection('/dev/ttyAMA0', baud = 57600,source_system=255,dialect="ardupilotmega", mavlink1=True)  # Adjust the IP and port as necessary
+        self.mav = mavutil.mavlink_connection('udp:127.0.0.1:14550')    # Adjust the IP and port as necessary
         print("Waiting for heartbeat...")
         print("Manually waiting for HEARTBEAT...")
         while True:
