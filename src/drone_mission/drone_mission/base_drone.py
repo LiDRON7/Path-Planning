@@ -2,14 +2,13 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
-# Import msgs
-from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleLocalPosition, VehicleStatus
+
+from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleStatus
 
 class BaseDrone(Node):
     def __init__(self, node_name):
         super().__init__(node_name)
 
-        # Configure QoS
 
         qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -23,7 +22,7 @@ class BaseDrone(Node):
         self.trajectory_setpoint_pub = self.create_publisher(TrajectorySetpoint, '/fmu/in/trajectory_setpoint', qos_profile)
         self.vehicle_command_pub = self.create_publisher(VehicleCommand, '/fmu/in/vehicle_command', qos_profile)
 
-        #  Subscribers (
+        # Subscribers
         self.status_sub = self.create_subscription(VehicleStatus, '/fmu/out/vehicle_status', self.vehicle_status_callback, qos_profile)
 
         # Internal State Variables
@@ -31,12 +30,15 @@ class BaseDrone(Node):
         self.arm_state = VehicleStatus.ARMING_STATE_DISARMED
 
     def vehicle_status_callback(self, msg):
-        """Update the drone's internal state """
+        if self.nav_state != msg.nav_state:
+            self.get_logger().info(f"Nav State Changed: {msg.nav_state}")
+        if self.arm_state != msg.arming_state:
+            self.get_logger().info(f"Arm State Changed: {msg.arming_state}")
+            
         self.nav_state = msg.nav_state
         self.arm_state = msg.arming_state
 
     def publish_offboard_control_mode(self):
-        """PX4P osition only'"""
         msg = OffboardControlMode()
         msg.position = True
         msg.velocity = False
@@ -47,7 +49,6 @@ class BaseDrone(Node):
         self.offboard_control_mode_pub.publish(msg)
 
     def publish_vehicle_command(self, command, **params):
-        """Generic function to send commands (ARM, LAND, etc.) to PX4"""
         msg = VehicleCommand()
         msg.command = command
         msg.param1 = params.get("param1", 0.0)
@@ -62,8 +63,7 @@ class BaseDrone(Node):
 
     def arm(self):
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, param1=1.0)
-        self.get_logger().info("Arm command sent")
 
     def engage_offboard_mode(self):
+        # Mode 1 is 'SET_MODE', param2=6 is 'OFFBOARD' in PX4
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, param1=1.0, param2=6.0)
-        self.get_logger().info("Offboard mode command sent")

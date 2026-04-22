@@ -4,7 +4,7 @@
   <name>drone_mission</name>
   <version>0.0.0</version>
   <description>Jazzy ROS 2 Basic</description>
-  <maintainer email="jediel.robles@upr.edu">jediel</maintainer>
+  <maintainer email="place@upr.edu">place</maintainer>
   <license>Apache-2.0</license>
 
   <depend>rclpy</depend>
