@@ -13,8 +13,8 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='jediel',
-    maintainer_email='jediel.robles@upr.edu',
+    maintainer='place',
+    maintainer_email='place@upr.edu',
     description='TODO: Package description',
     license='TODO: License declaration',
     extras_require={
