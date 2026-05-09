@@ -2,6 +2,8 @@ import rclpy
 import math
 from .base_drone import BaseDrone 
 from px4_msgs.msg import TrajectorySetpoint
+from sensor_msgs.msg import NavSatFix
+
 
 class Navigator(BaseDrone):
     def __init__(self):
@@ -76,6 +78,7 @@ class Navigator(BaseDrone):
         msg.position = [x, y, z]
         msg.yaw = 0.0 
         msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
+
         self.trajectory_setpoint_pub.publish(msg)
         
 def main(args=None):
@@ -88,6 +91,7 @@ def main(args=None):
     finally:
         navigator.destroy_node()
         rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
