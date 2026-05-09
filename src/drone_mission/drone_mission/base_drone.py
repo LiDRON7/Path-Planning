@@ -1,7 +1,6 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
-
 from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleStatus, SensorGps, VehicleLocalPosition
 
 class BaseDrone(Node):
@@ -15,21 +14,18 @@ class BaseDrone(Node):
             depth=1
         )
 
-        # Publishers 
         self.offboard_control_mode_pub = self.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', qos_profile)
         self.trajectory_setpoint_pub = self.create_publisher(TrajectorySetpoint, '/fmu/in/trajectory_setpoint', qos_profile)
         self.vehicle_command_pub = self.create_publisher(VehicleCommand, '/fmu/in/vehicle_command', qos_profile)
 
-        # Subscribers
         self.status_sub = self.create_subscription(VehicleStatus, '/fmu/out/vehicle_status', self.vehicle_status_callback, qos_profile)
         self.gps_sub = self.create_subscription(SensorGps, '/fmu/out/vehicle_gps_position', self.gps_callback, qos_profile)
         self.local_pos_sub = self.create_subscription(VehicleLocalPosition, '/fmu/out/vehicle_local_position', self.local_pos_callback, qos_profile)
 
-        # Internal State
+
         self.nav_state = 31 
         self.arm_state = 1
         
-        # Telemetry
         self.lat, self.lon, self.alt = 0.0, 0.0, 0.0
         self.local_x, self.local_y, self.local_z = 0.0, 0.0, 0.0
 
@@ -68,9 +64,11 @@ class BaseDrone(Node):
 
     def arm(self):
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, param1=1.0)
+        self.get_logger().info("Arm command sent")
 
     def land(self):
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
 
     def engage_offboard_mode(self):
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, param1=1.0, param2=6.0)
+        self.get_logger().info("Offboard mode command sent")
