@@ -2,8 +2,9 @@ import rclpy
 import math
 
 from .base_drone import BaseDrone 
-from px4_msgs.msg import TrajectorySetpoint
+from px4_msgs.msg import TrajectorySetpoint, VehicleLocalPosition, VehicleCommand, VehicleStatus
 from sensor_msgs.msg import NavSatFix
+from .mission_state_machine import MissionStateMachine, MissionState
 
 
 class Navigator(BaseDrone):
@@ -21,7 +22,27 @@ class Navigator(BaseDrone):
             '/gps',
             self.gps_callback,
             10
+        
         )
+          #--- QoS / extra subscriptions----
+        from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1
+        )
+
+        # Local position gives us the NED altitude we need for TAKEOFF check
+        self.local_pos_sub = self.create_subscription(
+            VehicleLocalPosition,
+            '/gps',
+            self.local_position_callback,
+            qos_profile
+        )
+
+        self.current_altitude_ned = 0.0
 
         self.current_gps = None
 
@@ -37,7 +58,11 @@ class Navigator(BaseDrone):
         self.target_y = None
 
         self.arrival_tolerance = 2.0
-
+        self.sm = MissionStateMachine(
+            logger=self.get_logger(),
+            target_altitude=self.target_altitude,
+            arrival_tolerance=self.arrival_tolerance,
+        )
 
     def gps_callback(self, msg):
         self.current_gps = msg
@@ -47,6 +72,8 @@ class Navigator(BaseDrone):
             self.home_lon = msg.longitude
             self.get_logger().info("Home position set")
 
+    def local_position_callback(self, msg):
+        self.current_altitude_ned = msg.z
 
     def gps_to_ned(self, lat, lon):
         R = 6378137.0
@@ -59,31 +86,47 @@ class Navigator(BaseDrone):
 
         return x, y
 
-
+    # Main loop
     def timer_callback(self):
+        # Always send the offboard heartbeat so PX4 stays in offboard mode
         self.publish_offboard_control_mode()
 
-        # Wait for GPS
-        if self.current_gps is None or self.home_lat is None:
-            self.get_logger().warn("Waiting for GPS...")
-            return
+        # ── IDLE: wait for GPS, then arm + offboard and transition to TAKEOFF
+        if self.sm.is_idle():
+            if self.current_gps is None or self.home_lat is None:
+                self.get_logger().warn("Waiting for GPS...", throttle_duration_sec=2.0)
+                return
 
-        # Convert target once
-        if self.target_x is None:
-            self.target_x, self.target_y = self.gps_to_ned(
-                self.target_lat,
-                self.target_lon
-            )
-            self.get_logger().info("Target converted to NED")
+            # Pre-compute NED target once home is known
+            if self.target_x is None:
+                self.target_x, self.target_y = self.gps_to_ned(
+                    self.target_lat, self.target_lon
+                )
+                self.get_logger().info("Target converted to NED")
 
-        # Navigation loop
-        self.navigate_to_waypoint()
-
-        # Arm + Offboard (once)
-        if not self.mission_started:
             self.arm()
             self.engage_offboard_mode()
-            self.mission_started = True
+            self.sm.on_gps_ready()   # IDLE → TAKEOFF
+            return
+        
+        # ── TAKEOFF: command the target altitude and wait until reached
+        if self.sm.is_takeoff():
+            self._publish_hold_with_altitude(self.target_altitude)
+
+            if self.sm.check_takeoff_complete(self.current_altitude_ned):
+                pass   # state machine logs the transition
+            return
+
+        # ── NAVIGATE: fly toward the waypoint
+        if self.sm.is_navigate():
+            self._navigate_to_waypoint()
+            return
+
+        # ── LAND: send land command once, then poll arm-state for completion
+        if self.sm.is_land():
+            self._execute_land()
+            return
+
 
 
     def navigate_to_waypoint(self):
@@ -99,8 +142,7 @@ class Navigator(BaseDrone):
 
         self.get_logger().info(f"Distance: {distance:.2f} m")
 
-        if distance < self.arrival_tolerance:
-            self.get_logger().info("Waypoint reached")
+        if self.sm.check_waypoint_reached(distance):
             return
 
         # Prevent division by zero
@@ -122,7 +164,31 @@ class Navigator(BaseDrone):
 
         self.trajectory_setpoint_pub.publish(msg)
 
+    def publish_hold_position(self, altitude):
+        current_x, current_y = self.gps_to_ned(
+            self.current_gps.latitude,
+            self.current_gps.longitude
+        )
 
+        msg = TrajectorySetpoint()
+        msg.position = [current_x, current_y, altitude]
+        msg.yaw = 0.0
+        msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
+
+        self.trajectory_setpoint_pub.publish(msg)
+    
+    self._land_command_sent = False
+
+    def execute_land(self):
+        if not self._land_command_sent:
+            self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
+            self.get_logger().info("Landing...")
+            self._land_command_sent = True
+
+        if self.arm_state == VehicleStatus.ARMING_STATE_DISARMED:
+            self.sm.on_landed()
+            self.get_logger().info("Mission complete")
+            
 def main(args=None):
     rclpy.init(args=args)
     navigator = Navigator()
